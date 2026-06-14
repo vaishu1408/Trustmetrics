@@ -49,27 +49,51 @@ BigQuery (TheLook eCommerce public data)
 dbt staging models + semantic layer   ← metric definitions, version-controlled
         │
         ▼
-Claude agent (raw path  +  governed path)
+Claude agent (governed path  +  raw path)
         │
         ▼
 Trust score engine  →  Streamlit UI
 ```
 
 - **Data**: `bigquery-public-data.thelook_ecommerce`
-- **Modeling / governance**: dbt (staging → fact table → semantic layer with MetricFlow metric definitions)
+- **Modeling / governance**: dbt (staging → fact table → semantic layer with MetricFlow metric definitions, in `/dbt`)
 - **Agent**: Anthropic Claude (Sonnet) via API
 - **App**: Streamlit
 
-## Metric definitions (the semantic layer)
+### A note on how the semantic layer is used
+
+The metrics are modeled and governed in dbt using MetricFlow (see the `dbt/` folder — the metric
+definitions live in version-controlled YAML). In this version of the app, those same governed
+definitions are supplied to the agent as its source of truth, so it answers from approved logic
+instead of guessing. The trust score measures how well each answer adheres to that governance.
+
+A planned v2 wires the app directly to the **dbt Semantic Layer API** so the agent resolves metrics
+through MetricFlow at query time — making the governance enforced by dbt itself rather than mirrored
+into the agent. That's the architecturally pure version and the next milestone.
+
+## Governed metrics (the semantic layer)
 
 | Metric | Definition |
 |---|---|
-| `net_revenue` | Sum of `sale_price`, excluding Cancelled and Returned, anchored to order date |
-| `gross_revenue` | Sum of `sale_price`, excluding Cancelled only (returns still included) |
-| `return_rate` | Returned items ÷ non-cancelled items, as a percentage |
+| `net_revenue` | Sum of `sale_price`, excluding Cancelled and Returned |
+| `gross_revenue` | Sum of `sale_price`, excluding Cancelled only |
+| `gross_margin` | Net sales minus product cost (joins to products) |
+| `aov` | Average order value — net revenue per non-cancelled order |
+| `total_orders` | Distinct non-cancelled orders |
+| `total_items` | Non-cancelled items sold |
 | `active_customers` | Distinct customers with ≥1 non-cancelled order |
+| `new_customers` | Customers whose first-ever order falls in the period |
+| `repeat_rate` | Share of buyers with 2+ orders |
+| `return_rate` | Returned items ÷ non-cancelled items |
+| `cancel_rate` | Cancelled items ÷ all items |
+| `returned_count` | Number of returned items |
 
-Each definition encodes the edge-case decisions (which statuses count, which date to anchor to) that an ungoverned AI would otherwise make silently.
+Each definition encodes the edge-case decisions (which statuses count, which date to anchor to)
+that an ungoverned AI would otherwise make silently.
+
+**Open system with graceful fallback:** questions that map to a governed metric get a high-trust,
+verified answer. Questions that don't are still answered — using an ungoverned best-effort path —
+but flagged honestly as unverified and capped at a low trust score.
 
 ## Running it locally
 
@@ -89,9 +113,10 @@ GCP_SERVICE_ACCOUNT_JSON = '''{ ...service account json... }'''
 
 ## Roadmap
 
-- Bring-your-own-warehouse: point the agent at any dbt project
-- Multi-metric questions and time-series breakdowns
+- **v2 — true dbt Semantic Layer API integration:** agent resolves metrics through MetricFlow at query time
+- Time-series breakdowns and multi-metric questions
 - As-of trust scoring (the same query run a week apart returns different numbers as returns settle — definitions need timestamps)
+- Bring-your-own-warehouse: point the agent at any dbt project
 
 ---
 

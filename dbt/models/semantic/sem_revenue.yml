@@ -1,0 +1,142 @@
+semantic_models:
+  - name: order_items
+    description: >
+      Item-level fact for TheLook eCommerce. One row per ordered item, enriched
+      with product cost for margin. All governed metrics are built from this model.
+    model: ref('fct_order_items')
+    defaults:
+      agg_time_dimension: order_date
+ 
+    entities:
+      - name: order_item
+        type: primary
+        expr: order_item_id
+      - name: order
+        type: foreign
+        expr: order_id
+      - name: customer
+        type: foreign
+        expr: user_id
+ 
+    dimensions:
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: status
+        type: categorical
+ 
+    measures:
+      # --- revenue & margin ---
+      - name: net_sales
+        description: Sale price for items excluding Cancelled and Returned.
+        agg: sum
+        expr: case when status not in ('Cancelled','Returned') then sale_price else 0 end
+      - name: gross_sales
+        description: Sale price for items excluding Cancelled only (returns still counted).
+        agg: sum
+        expr: case when status != 'Cancelled' then sale_price else 0 end
+      - name: net_margin_amount
+        description: Sale price minus product cost for non-cancelled, non-returned items.
+        agg: sum
+        expr: case when status not in ('Cancelled','Returned') then sale_price - cost else 0 end
+ 
+      # --- counts ---
+      - name: non_cancelled_orders
+        description: Distinct orders excluding cancelled.
+        agg: count_distinct
+        expr: case when status != 'Cancelled' then order_id end
+      - name: non_cancelled_items
+        description: Items excluding cancelled.
+        agg: sum
+        expr: case when status != 'Cancelled' then 1 else 0 end
+      - name: active_customer_ids
+        description: Distinct customers with at least one non-cancelled order.
+        agg: count_distinct
+        expr: case when status != 'Cancelled' then user_id end
+      - name: returned_items
+        description: Count of returned items.
+        agg: sum
+        expr: case when status = 'Returned' then 1 else 0 end
+      - name: cancelled_items
+        description: Count of cancelled items.
+        agg: sum
+        expr: case when status = 'Cancelled' then 1 else 0 end
+      - name: all_items
+        description: Count of all items.
+        agg: sum
+        expr: 1
+ 
+metrics:
+  - name: net_revenue
+    description: Sales kept — excludes cancelled and returned items.
+    type: simple
+    type_params:
+      measure: net_sales
+ 
+  - name: gross_revenue
+    description: Sales excluding cancelled only (returns still counted).
+    type: simple
+    type_params:
+      measure: gross_sales
+ 
+  - name: gross_margin
+    description: Net sales minus product cost.
+    type: simple
+    type_params:
+      measure: net_margin_amount
+ 
+  - name: total_orders
+    description: Distinct non-cancelled orders.
+    type: simple
+    type_params:
+      measure: non_cancelled_orders
+ 
+  - name: total_items
+    description: Non-cancelled items sold.
+    type: simple
+    type_params:
+      measure: non_cancelled_items
+ 
+  - name: active_customers
+    description: Distinct customers with at least one non-cancelled order.
+    type: simple
+    type_params:
+      measure: active_customer_ids
+ 
+  - name: returned_count
+    description: Number of returned items.
+    type: simple
+    type_params:
+      measure: returned_items
+ 
+  - name: aov
+    description: Average order value — net revenue divided by non-cancelled orders.
+    type: ratio
+    type_params:
+      numerator: net_sales
+      denominator: non_cancelled_orders
+ 
+  - name: return_rate
+    description: Returned items divided by non-cancelled items (multiply by 100 for percent).
+    type: ratio
+    type_params:
+      numerator: returned_items
+      denominator: non_cancelled_items
+ 
+  - name: cancel_rate
+    description: Cancelled items divided by all items (multiply by 100 for percent).
+    type: ratio
+    type_params:
+      numerator: cancelled_items
+      denominator: all_items
+ 
+# ---------------------------------------------------------------------------
+# Notes
+# - new_customers (first-ever order falls in period) and repeat_rate
+#   (share of buyers with 2+ orders) require a per-customer pre-aggregation.
+#   They are modeled as dedicated marts (customer_first_order / customer_order_counts)
+#   rather than simple measures on this fact, and exposed as metrics there.
+#   Kept out of this file to keep the item-grain semantic model clean.
+# - Percentages: ratio metrics return a fraction; the app multiplies by 100.
+# ---------------------------------------------------------------------------
