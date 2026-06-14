@@ -2,7 +2,7 @@
 
 **An AI data analyst that answers only from governed metric definitions — and scores how much you can trust every answer.**
 
-Live demo: trustmetrics ∙ main ∙ app.py
+Live demo: https://trustmetrics.streamlit.app
 
 ---
 
