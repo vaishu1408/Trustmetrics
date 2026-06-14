@@ -194,6 +194,81 @@ st.markdown("""
         line-height: 1.55;
     }
     .evidence-text b { color: #f1f5f9; }
+
+    /* Dataset intro */
+    .data-intro {
+        background: #11161f;
+        border: 1px solid #1a2230;
+        border-radius: 12px;
+        padding: 1.1rem 1.4rem;
+        margin: 1.5rem 0 1.2rem 0;
+    }
+    .data-intro-label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.66rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #38bdf8;
+        margin-bottom: 0.5rem;
+    }
+    .data-intro p {
+        font-size: 0.9rem;
+        color: #94a3b8;
+        line-height: 1.55;
+        margin: 0;
+    }
+    .data-intro b { color: #cbd5e1; }
+
+    /* Muted KPI strip */
+    .kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.6rem;
+        margin: 0 0 2.2rem 0;
+    }
+    .kpi-tile {
+        background: #10151e;
+        border: 1px solid #1a2230;
+        border-radius: 10px;
+        padding: 0.85rem 0.9rem;
+    }
+    .kpi-val {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.35rem;
+        font-weight: 600;
+        color: #cbd5e1;
+        line-height: 1.1;
+    }
+    .kpi-cap {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.6rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #5b6678;
+        margin-top: 0.35rem;
+    }
+
+    /* Metrics reference */
+    .ref-row {
+        display: flex;
+        gap: 0.9rem;
+        padding: 0.55rem 0;
+        border-bottom: 1px solid #161e2b;
+        font-size: 0.86rem;
+    }
+    .ref-name {
+        font-family: 'JetBrains Mono', monospace;
+        color: #38bdf8;
+        min-width: 150px;
+        flex-shrink: 0;
+    }
+    .ref-def { color: #94a3b8; line-height: 1.45; }
+
+    @media (max-width: 640px) {
+        .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+        .ref-row { flex-direction: column; gap: 0.2rem; }
+        .ref-name { min-width: 0; }
+    }
     .sql-block {
         font-family: 'JetBrains Mono', monospace;
         font-size: 0.78rem;
@@ -220,6 +295,26 @@ def get_bq_client():
 @st.cache_resource
 def get_claude():
     return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_overview():
+    """One governed query for the dataset-at-a-glance strip. Cached 1 hour."""
+    bq = get_bq_client()
+    sql = """
+    SELECT
+      SUM(CASE WHEN status NOT IN ('Cancelled','Returned') THEN sale_price ELSE 0 END) AS net_revenue,
+      COUNT(DISTINCT CASE WHEN status != 'Cancelled' THEN order_id END) AS total_orders,
+      COUNT(DISTINCT CASE WHEN status != 'Cancelled' THEN user_id END) AS active_customers,
+      COUNTIF(status='Returned') / COUNTIF(status != 'Cancelled') * 100 AS return_rate
+    FROM `bigquery-public-data.thelook_ecommerce.order_items`
+    """
+    row = bq.query(sql).to_dataframe().iloc[0]
+    return {
+        "net_revenue": float(row["net_revenue"]),
+        "total_orders": int(row["total_orders"]),
+        "active_customers": int(row["active_customers"]),
+        "return_rate": float(row["return_rate"]),
+    }
 
 # ----------------------------------------------------------------------------
 # The semantic layer — approved metric definitions
@@ -448,6 +543,31 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ---- Dataset intro ----
+st.markdown("""
+<div class="data-intro">
+    <div class="data-intro-label">About the data</div>
+    <p>Everything here runs live on <b>TheLook eCommerce</b>, a public BigQuery dataset simulating
+    a fashion retailer — <b>orders, items, products, customers, returns and cancellations</b>.
+    The questions below are answered in real time against that warehouse, using governed metric
+    definitions rather than letting the AI guess what each business term means.</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ---- Live KPI strip ----
+try:
+    ov = get_overview()
+    st.markdown(f"""
+    <div class="kpi-strip">
+        <div class="kpi-tile"><div class="kpi-val">${ov['net_revenue']/1e6:,.1f}M</div><div class="kpi-cap">Net revenue</div></div>
+        <div class="kpi-tile"><div class="kpi-val">{ov['total_orders']:,}</div><div class="kpi-cap">Orders</div></div>
+        <div class="kpi-tile"><div class="kpi-val">{ov['active_customers']:,}</div><div class="kpi-cap">Customers</div></div>
+        <div class="kpi-tile"><div class="kpi-val">{ov['return_rate']:.1f}%</div><div class="kpi-cap">Return rate</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+except Exception:
+    pass  # KPI strip is decorative; never block the app if it can't load
+
 examples = {
     "Gross margin": "What's our gross margin?",
     "Avg order value": "What is our average order value?",
@@ -567,6 +687,26 @@ if (go or clicked) and question:
         st.markdown(f'<div class="answer-label">Raw path</div><div class="sql-block">{html.escape(str(res["raw_sql"]))}</div>', unsafe_allow_html=True)
         if res["mode"] == "governed":
             st.markdown(f'<div class="answer-label" style="margin-top:0.8rem;">Governed path</div><div class="sql-block">{html.escape(str(res["gov_sql"]))}</div>', unsafe_allow_html=True)
+
+with st.expander("See all 12 governed metrics"):
+    metrics_ref = [
+        ("net_revenue", "Sales kept — excludes cancelled and returned items"),
+        ("gross_revenue", "Sales excluding cancelled only (returns still counted)"),
+        ("gross_margin", "Net sales minus product cost (joins to products)"),
+        ("aov", "Average order value — net revenue per non-cancelled order"),
+        ("total_orders", "Distinct non-cancelled orders"),
+        ("total_items", "Non-cancelled items sold"),
+        ("active_customers", "Distinct customers with at least one non-cancelled order"),
+        ("new_customers", "Customers whose first-ever order falls in the period"),
+        ("repeat_rate", "Share of buyers with 2 or more orders"),
+        ("return_rate", "Returned items ÷ non-cancelled items"),
+        ("cancel_rate", "Cancelled items ÷ all items"),
+        ("returned_count", "Number of returned items"),
+    ]
+    ref_html = ""
+    for name, desc in metrics_ref:
+        ref_html += f'<div class="ref-row"><span class="ref-name">{name}</span><span class="ref-def">{desc}</span></div>'
+    st.markdown(ref_html, unsafe_allow_html=True)
 
 st.markdown(
     '<div style="margin-top:3rem;color:#475569;font-size:0.8rem;font-family:JetBrains Mono,monospace;">'
