@@ -2,7 +2,7 @@
 
 **An AI data analyst that answers only from governed metric definitions — and scores how much you can trust every answer.**
 
-Live demo: _(add your Streamlit link here)_
+Live demo: https://trustmetrics.streamlit.app
 
 ---
 
@@ -42,18 +42,7 @@ The result: a score of **70** says "the right metric was used, but the AI's ungu
 
 ## Architecture
 
-```
-BigQuery (TheLook eCommerce public data)
-        │
-        ▼
-dbt staging models + semantic layer   ← metric definitions, version-controlled
-        │
-        ▼
-Claude agent (governed path  +  raw path)
-        │
-        ▼
-Trust score engine  →  Streamlit UI
-```
+![TrustMetrics architecture](assets/architecture.svg)
 
 - **Data**: `bigquery-public-data.thelook_ecommerce`
 - **Modeling / governance**: dbt (staging → fact table → semantic layer with MetricFlow metric definitions, in `/dbt`)
